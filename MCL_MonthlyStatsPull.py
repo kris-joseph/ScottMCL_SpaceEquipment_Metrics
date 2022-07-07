@@ -1,36 +1,23 @@
 #!/usr/bin/env python
-# coding: utf-8
+# coding: utf-
 
-## Monthly Stats and Metrics for Scott Media Creation Lab's Spaces and Equipment
-## Script by Kris Joseph, kjo@yorku.ca
-
-# This script is intended to be run monthly to grab key data points for metrics and stats. It should be run AFTER the end of the month (e.g. run the script for July AFTER August 1 to ensure there's a full month of data in the system).
-
-# Multiple outputs will be generated:
-# 1. "Raw" equipment data, in a file called (yyyy-mm-dd)_equip.csv   
-# 2. "Raw" spaces data, in a file called (yyyy-mm-dd)_space.csv   
-# 3. Final metrics data (for input into DSI's tracking spreadsheet) for both modules:
-#     - (yyyy-mm-dd)_equipment_finalStats.csv
-#     - (yyyy-mm-dd)_sapce_finalStats.csv
-    
-# *IMPORTANT*
-# This script is totally tied to the format of the data tracking spreadsheet (i.e. the number of columns, in the order generated here, are intended to match the layout of the spreadsheet so that when a data row is added it just has to be pasted in and all the columns will line up properly. As a result, any changes to the column order in this script OR in the DSI tracking sheet must be made in both places (here and in the spreadsheet).
-
-# ## Set the value for the month that stats are needed for
-# 
-# To run this script, the only thing you should have to change is the "datadate" field below. Enter in the form yyyy-mm-01
-
-import requests, json, csv, calendar, math, collections, hashlib
-import pandas as pd
+import requests, json, csv, calendar, datetime, math, collections, hashlib
 from datetime import *
+import pandas as pd
 
+##########
 ## INPUT variable
+##########
+
 # Set this to the year and month for which data will be gathered, in yyy-mm-dd format. dd should always be 01
 # This is also the date format LibCal's API expects for the API calls
-datadate = "2022-06-01"
+datadate = "2022-03-01"
 
 
+##########
 ## Variable initializations and constants
+##########
+
 
 # Our outputData dictionary. This dictionary is gonna have a TON of data points in it eventually....
 equipmentOutputData = {}
@@ -42,10 +29,9 @@ daysInMonth = calendar.monthrange(int(year), int(month))[1]
 
 ## These values are specific to the Scott MCL instance of LibCal's Spaces and Equipment modules. 
 ## FYI, these IDs can be found in the LibCal admin web interface (you'll have to generate a clientSecret in the API module though)
-locationID = SET_THIS                                 # This is the system's location ID for the Scott MCL, which can be seen in the web-based admin for Libcal
-clientID = SET_THIS                                    # Libapps client ID for the yorku account
-clientSecret = 'SET-THIS' # Access password, generated using the admin interface for libcal (API module)
-
+locationID = SET_THIS     # This is the system's location ID for the Scott MCL, which can be seen in the web-based admin for Libcal
+clientID = SET_THIS       # Libapps client ID for the yorku account
+clientSecret = 'SET_THIS' # Access password, generated using the admin interface for libcal (API module)
 
 # The "faculties" and "rlationship" values here mirror the possible values used in the custom booking forms for Scott MCL spaces and equipment.
 # Any changes there should be reflected here.
@@ -78,6 +64,7 @@ relationshipCategories = ["Graduate Student",
 
 # Lab operating hours for tallying frequencies
 # Currently running in the range 8AM-8PM; may need asjustment later
+# Can also put days of the week in here to hold daily tallies
 hours = ["08AM",
          "09AM",
          "10AM",
@@ -159,36 +146,38 @@ for category in [spaceDataCategories, equipmentDataCategories]:
                 equipmentOutputData[entry] = 0
 
 
-
 # Ignore all staff-originated bookings. Side note: encourage staff to NOT use a bunch of different email addresses
-adminEmails = ["email@example.org",
-               "anotheremail@here.net"
+adminEmails = ["example@email.com", 
               ]
 
+# hash these email addresses so they match info in our processed CSV data 
+# (all email addresses are obscured with hashes for privacy)
+for index in range(len(adminEmails)):
+    adminEmails[index] = hashlib.md5(adminEmails[index].encode()).hexdigest()
 
-# ## Get a token for API acess
-# 
-# By default, tokens are valid for one hour
+##########
+## Gather data from LibCal and clean it
+##########
 
-
+## Get a token for API access
+    
 # URLs and data structures for API calls are all listed in the admin pages for the Libapps API module
 url = 'https://yorku.libcal.com/1.1/oauth/token'
-myobj = {'client_id': clientID,
+myRequestData = {'client_id': clientID,
         'client_secret': clientSecret,
         'grant_type': 'client_credentials'}
 
-x = requests.post(url, data = myobj)
+# send the request
+call = requests.post(url, data = myRequestData)
 
 # API authorization is returned in a JSON object, and we need to grab/store our access token, which
 # is used to validate API calls for getting/setting data
-authorizationData = x.json()
+authorizationData = call.json()
 accessToken = authorizationData['access_token']
 
 
-## Send a request
-# 
-# LibCal uses two different modules for Spaces and Equipment, and each has different API URLs. In this section we'll build API calls to pull one month's worth of data for each 
 
+## Send API request to gather data
 
 equipURL = 'https://yorku.libcal.com/1.1/equipment/bookings'
 spaceURL = 'https://yorku.libcal.com/1.1/space/bookings'
@@ -217,9 +206,8 @@ response = requests.get(spaceURL, headers=headers, params=spaceData)
 spacesAPIData = response.json()
 
 
-## First-pass data cleaning (for raw CSV output)
 
-# Some JSON values are EMPTY and this will result in misaligned columns of data in CSV output file near the end of the rows (where custom form question data is output).  We need to iterate through JSON data and replace any empy values in "cancelled", "q2489", "q2490" and "q2491" fields.  I'm using two loops, one for each data set, because their structures are different. I'm sure there's a more elegant way to generalize this, but why get fancy if we don't need to?
+## First-pass data cleaning (for raw CSV output)
 
 # List of field names for which data may be missing (due to booking form variations etc.
 # for example, if no "cancellation" of a booking occurred, there is no 'cancelled' data in the record.
@@ -245,6 +233,13 @@ for entry in equipAPIData:
     entry["relpToYork"] = entry.pop("q2489")
     entry["faculty"] = entry.pop("q2490")
     entry["project"] = entry.pop("q2491")
+    
+    # Remove identifying patron information
+    entry.pop("firstName") 
+    entry.pop("lastName")
+    entry.pop("account")
+    entry["email"] = hashlib.md5(entry["email"].encode()).hexdigest()
+    
 
     # Handle cases where the 'Other' field value might cause problems with stats (since it's a possible answer for
     # two different questions on booking forms
@@ -267,11 +262,11 @@ for entry in spacesAPIData:
     # empty questions result in mal-formatted CSV output so I set to null if nonexistent in a record
     if ('q2489' not in entry.keys()) or (entry["q2489"]) == "":
         entry["q2489"] = "null"
-    if ('q2489' not in entry.keys()) or (entry["q2489"]) == "":
+    if ('q2490' not in entry.keys()) or (entry["q2490"]) == "":
         entry["q2490"] = "null"
-    if ('q2489' not in entry.keys()) or (entry["q2489"]) == "":
+    if ('q2491' not in entry.keys()) or (entry["q2491"]) == "":
         entry["q2491"] = "null"
-    if ('q2489' not in entry.keys()) or (entry["q2489"]) == "":
+    if ('q2669' not in entry.keys()) or (entry["q2669"]) == "":
         entry["q2669"] = "null"
     
     #Change key names for custom question fields
@@ -281,14 +276,19 @@ for entry in spacesAPIData:
     entry["VRexperience"] = entry.pop("q2579")
     entry["flexStudioUse"] = entry.pop("q2669")
     
+    # Remove identifying patron information
+    entry.pop("firstName") 
+    entry.pop("lastName")
+    entry.pop("account")
+    entry["email"] = hashlib.md5(entry["email"].encode()).hexdigest()
+    
     # Handle cases where the 'Other' field value might cause problems with stats (since it's a possible answer for
     # two different questions on booking forms
     if entry["relpToYork"] == "Other": entry["relpToYork"] = "Other Relationship" 
     if entry["faculty"] == "Other": entry["faculty"] = "Other Faculty or No Faculty"
-
+    
 
 ## Writing Data to a CSV file
-# 
 
 ## OUTPUT: Equipment data
 
@@ -296,8 +296,8 @@ csvOut = open("data/"+datadate+"_equip.csv", 'w')
 
 # Equipment data field names in the order I want
 equipFieldnames = ['bookId', 'id', 'eid', 'cid', 'lid',
-             'fromDate', 'toDate', 'created', 'firstName', 'lastName',
-             'email', 'account', 'status', 'location_name', 'category_name', 'item_name',
+             'fromDate', 'toDate', 'created',
+             'email', 'status', 'location_name', 'category_name', 'item_name',
              'barcode', 'cancelled', 'relpToYork', 'faculty', 'project']
 
 # create the csv writer object
@@ -317,8 +317,8 @@ csvOut = open("data/"+datadate+"_space.csv", 'w')
 
 # Spaces data field names in the order I want
 spacesFieldnames = ['bookId', 'id', 'eid', 'cid', 'lid',
-             'fromDate', 'toDate', 'created', 'firstName', 'lastName',
-             'email', 'account', 'status', 'location_name', 'category_name', 'item_name',
+             'fromDate', 'toDate', 'created',
+             'email', 'status', 'location_name', 'category_name', 'item_name',
               'seat_id', 'seat_name', 'check_in_code', 'cancelled', 'relpToYork', 'faculty', 'project', 'VRexperience', 'flexStudioUse']
 
 # create the csv writer object
@@ -336,17 +336,22 @@ csvOut.close()
 
 ## Pull in CSV data for final processing
 
-# Hey, so those fles we literally just created? Let's read 'em into Pandas Datframes! Why s this so obtuse, you ask?
-# Because this was originally a separate script and I could consider converting the dict from earlier in THIS script into a DataFrame but TBH
-# I think the raw CSV files are still valuable and so this is ok by me
+# Hey, so those files we literally just created? Let's read 'em into Pandas Dataframes! 
+# Why is this so obtuse, you ask?
+# Because this was originally a separate script and I should consider converting the dict from earlier 
+# in THIS script into a DataFrame but TBH I think the raw CSV files are still valuable and so this is ok by me
 
-# Anyway, since we built the CSV files in the previous step, the format of them should be reliable and we can simply read them into Pandas
+# Anyway, since we built the CSV files in the previous step, the format of them should be reliable 
+# and we can simply read them into Pandas
 
 spacesData = pd.read_csv("data/"+datadate+"_space.csv", index_col='id')
 equipData = pd.read_csv("data/"+datadate+"_equip.csv", index_col='id')
 
 
-### Metrics and Stats Processing
+
+##########
+# Metrics and Stats Processing
+##########
 
 ## Cancelled vs Actual Bookings
 
@@ -391,9 +396,8 @@ print("Cancelled by staff:", equipmentOutputData["cancelledByAdmin"])
 print("Total actual bookings:", equipmentOutputData["totalActualBookings"])
 
 
-## DROPPING UNWANTED DATA
-# 
-# Drop rows where bookings have been cancelled (by the user; by a staff member; by the system due to late checkin)
+
+## Drop unwanted data
 
 # Drop bookings canceled by User and by System
 spacesData.drop(spacesData.index[(spacesData["status"] == 'Cancelled by User')],axis=0,inplace=True)
@@ -406,22 +410,28 @@ spacesData.drop(spacesData.index[(spacesData["status"].str.startswith('Cancelled
 equipData.drop(equipData.index[(equipData["status"].str.startswith('Cancelled by Admin'))],axis=0,inplace=True)
 
 
+
 ## Data: Unique projects, VR content choices, and Flex Studio uses
+
+# Set up a string translation table to remove newline characters from "project" entry fields
+# Since the string is built by casting a LIST as a STRING, we can also remove
+# the [ and ] characters that Python would use to show the sdata is in a list
+strTranslation = str.maketrans('', '' ,'\r\n[]')
 
 # First we can grab project field data and calculate the number of "unique" projects found within it
 spacesOutputData["uniqueProjects"] = len(spacesData['project'].unique())-1
-spacesOutputData["projectList"] = str(spacesData['project'].unique()).replace("\n","")
 spacesOutputData["projectList"] = str(spacesData['project'].unique()).replace("nan ","") #remove Pandas NaN values from the string
+spacesOutputData["projectList"] = spacesOutputData["projectList"].translate(strTranslation)
 
 equipmentOutputData["uniqueProjects"] = len(equipData['project'].unique())-1
-equipmentOutputData["projectList"] = str(equipData['project'].unique()).replace("\n","")
 equipmentOutputData["projectList"] = str(equipData['project'].unique()).replace("nan ","") #remove Pandas NaN values from the string
+equipmentOutputData["projectList"] = equipmentOutputData["projectList"].translate(strTranslation)
 
 # Users also provide info on how they'll use the Flex Studio or VR Rooms as part of those forms, so grab that...
-spacesOutputData["VRContentList"] = str(spacesData['VRexperience'].unique()).replace("\n","")
 spacesOutputData["VRContentList"] = str(spacesData['VRexperience'].unique()).replace("nan","") #remove Pandas NaN values from the string
-spacesOutputData["flexStudioUseList"] = str(spacesData['flexStudioUse'].unique()).replace("\n","")
+spacesOutputData["VRContentList"] = spacesOutputData["VRContentList"].translate(strTranslation)
 spacesOutputData["flexStudioUseList"] = str(spacesData['flexStudioUse'].unique()).replace("nan","") #remove Pandas NaN values from the string
+spacesOutputData["flexStudioUseList"] = spacesOutputData["flexStudioUseList"].translate(strTranslation)
 
 print("Equipment projects:", equipmentOutputData["projectList"])
 print("Number of unique equipment projects:", equipmentOutputData["uniqueProjects"])
@@ -432,8 +442,8 @@ print("Flex Studio projects:", spacesOutputData["flexStudioUseList"])
 print("VR Room experiences:", spacesOutputData["VRContentList"])
 
 
-## Data: Frequencies / Counts for faculty, RTI, space categories and equipment categories
 
+## Data: Frequencies / Counts for faculty, RTI, space categories and equipment categories
 
 # Both the equipment and spaces data have info for faculty, RTI, space/equipment category and item, so we'll
 # look through those to build tallies adn store them in the output data
@@ -448,9 +458,10 @@ for category in ["faculty", "relpToYork", "category_name", 'item_name']:
 # The Spaces data has a unique "seat_name" category so we'll do this one separately...
 workstationTallies = spacesData["seat_name"].value_counts(dropna=True).to_dict()
 for key in workstationTallies:
-    spacesOutputData[key] = workstationTallies[key]     
+    spacesOutputData[key] = workstationTallies[key] 
+    
 
-
+    
 ## Unique Users
 
 # We can count unique users by looking at unique email addresses. As a note, I have seen that some students will
@@ -461,6 +472,8 @@ equipmentOutputData["uniqueUsers"] = len(equipData['email'].unique())
 
 print("Number of unique space users:", spacesOutputData["uniqueUsers"])
 print("Number of unique equipment users:", equipmentOutputData["uniqueUsers"])
+
+
 
 ## User access times
 
@@ -506,9 +519,9 @@ for reportType in [spacesCheckInTimes, equipCheckInTimes]:
             else:
                 equipmentOutputData[key] = value
                 print(key, equipmentOutputData[key])
-            #print(f"{key}: {value}")
+                
 
-
+                
 ## Data: First Time Users
 
 spacesOutputData["firstTimeUsers"] = 0
@@ -541,9 +554,6 @@ overallUniqueUsers = list(set(spaceUniqueUsers + equipUniqueUsers))
 for usergroup in [spaceUniqueUsers, equipUniqueUsers, overallUniqueUsers]:
 
     for userThisMonth in usergroup:
-
-        # make a hash of the email address so we don't have text files full of plaintext addresses
-        userThisMonth = hashlib.md5(userThisMonth.encode()).hexdigest()
         
         if usergroup == spaceUniqueUsers:
             if userThisMonth not in existingSpaceUsers:
@@ -578,7 +588,9 @@ print("This month's number of new equipment users:", equipmentOutputData["firstT
 print("This month's number of new overall users:", overallFirstTimeUsers)
 
 
+#######
 ## Final Data Output
+#######
 
 # now we will open a file for writing
 spaceCsvOut = open("data/"+datadate+"_space_finalStats.csv", 'w')
@@ -659,3 +671,24 @@ equipmentCsvWriter.writerow(equipmentOutputData)
 
 spaceCsvOut.close()
 equipmentCsvOut.close()
+
+
+
+## Create combined file (one line of data for both modules)
+
+finalEquipmentData = open("data/"+datadate+"_equipment_finalStats.csv", 'r')
+finalSpaceData = open("data/"+datadate+"_space_finalStats.csv", 'r')
+
+equipmentHeader = finalEquipmentData.readline().strip()
+spacesHeader = finalSpaceData.readline().strip()
+finalHeader = equipmentHeader+spacesHeader
+
+equipmentData = finalEquipmentData.readline().strip()
+spacesData = finalSpaceData.readline().strip()
+
+finalData = equipmentData+spacesData
+
+finalFullData = open("data/"+datadate+"_overall_finalStats.csv", 'w')
+
+finalFullData.write(finalHeader+"\n")
+finalFullData.write(finalData+"\n")
