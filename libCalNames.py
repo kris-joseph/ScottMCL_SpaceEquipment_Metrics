@@ -177,36 +177,10 @@ for category in [spaceDataCategories, equipmentDataCategories]:
                 equipmentOutputData[entry] = 0
 
 
-# Ignore all staff-originated bookings. Side note: encourage staff to NOT use a bunch of different email addresses
+# Ignore all staff-originated bookings by including their emil addresses in the list below. Side note: encourage staff to NOT use a bunch of different email addresses
 
-# Note: Jesse Baker, Anna St.Onge and Kris Joseph are not in the list because
-# they often book things for teaching work, which we actually DO want to
-# count as part of our metrics
-
-adminEmails = [     
-               "aput23@yorku.ca",            # Ananth Putcha
-               "ananthput23@gmail.com",
-               "gennyjon@yorku.ca",          # Genny Jon
-               "rafia8@yorku.ca",            # Rafia Naz
-               "rafia9@my.yorku.ca",
-               "maykel24@yorku.ca",          # Maykel Shehata
-               "ms24@yorku.ca",  
-               "jirome32@yorku.ca",          # Jirome Elias
-               "jirome.elias8243@gmail.com",
-               "timmyt@yorku.ca",            # Timi Akenbaleye
-               "timmyola@my.yorku.ca",
-               "kjain@yorku.ca",             # Kanishka Jain
-               "jkan2@yorku.ca",
-               "akenedy4@yorku.ca",          # Adam Kenedy
-               "saha25@yorku.ca",            # Shawon Saha
-               "smeallybeany2@gmail.com",    # Sandra Moey
-               "san22mdc@gmail.com",
-               "hargun13@yorku.ca",          # Hargun Singh
-               "ianmg@yorku.ca"              # Ian Galendez
+adminEmails = ["example@email.com", 
               ]
-
-#adminEmails = ["example@email.com", 
-#              ]
 
 # hash these email addresses so they match info in our processed CSV data 
 # (all email addresses are obscured with hashes for privacy)
